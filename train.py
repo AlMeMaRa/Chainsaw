@@ -4,14 +4,67 @@ import os
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
+# Authenticate with Kaggle using API credentials
+kaggle_json_path = os.path.join(os.environ["HOME"], ".config", "kaggle", "kaggle.json")
+
+# Get dirname of the kaggle.json file
+kaggle_json_dir = os.path.dirname(kaggle_json_path)
+# Check if the kaggle.json file exists
+if not os.path.exists(kaggle_json_path):
+    # If it doesn't exist, create the directory
+    os.makedirs(kaggle_json_dir, exist_ok=True)
+    # Create an empty kaggle.json file
+    with open(kaggle_json_path, "w") as f:
+        f.write("{}")
+    print(
+        f"kaggle.json file created at {kaggle_json_path}. Please add your Kaggle API credentials to this file."
+    )
+else:
+    print(f"Kaggle API key found at {kaggle_json_path}")
+
+# Set the KAGGLE_CONFIG_DIR environment variable to the directory containing kaggle.json
+print(f"Setting KAGGLE_CONFIG_DIR to {kaggle_json_dir}")
+os.environ["KAGGLE_CONFIG_DIR"] = kaggle_json_dir
+
+
 import tensorflow as tf
 import tensorflow_io as tfio
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense
 
+import kagglehub
+import kaggle
+
+# # Import the Kaggle API
+from kaggle.api.kaggle_api_extended import KaggleApi
+
+api = KaggleApi()
+# # Authenticate using Kaggle API
+api.authenticate()
+
+# # Download the private dataset from Kaggle
+# # This dataset contains audio files for chainsaw and non-chainsaw sounds
+# # Note: To use Kaggle API, you need to set up your Kaggle API credentials.
+# #* 1. Go to your Kaggle account settings: https://www.kaggle.com/account
+# #* 2. Scroll down to the "API" section and click on "Create New API Token".
+# #* 3. This will download a file named `kaggle.json`.
+# #* 4. Place this file in the `~/.kaggle/` directory (Linux/Mac) or `%USERPROFILE%\.kaggle\` (Windows).
+# #* 5. Ensure the file has proper permissions (e.g., `chmod 600 ~/.kaggle/kaggle.json` on Linux/Mac).
+parsed_chainsaw_db = kagglehub.dataset_download("kennethalampay/chainsaw")
+parsed_not_chainsaw_db = kagglehub.dataset_download(
+    "kenjee/z-by-hp-unlocked-challenge-3-signal-processing"
+)
+
+# ? Sets the path to the dataset directory
+PARSED_CHAINSAW_DIR = parsed_chainsaw_db
+NOT_PARSED_CHAINSAW_DIR = parsed_not_chainsaw_db
+
+print(f"Path to dataset files {PARSED_CHAINSAW_DIR}/")
+print(f"Path to dataset files {NOT_PARSED_CHAINSAW_DIR}/")
+
 # Define paths
-POS = os.path.join("data", "Parsed_Chainsaw_Clips")
-NEG = os.path.join("data", "Parsed_Not_Chainsaw_Clips")
+POS = os.path.join(PARSED_CHAINSAW_DIR)
+NEG = os.path.join(NOT_PARSED_CHAINSAW_DIR, "Parsed_Not_Capuchinbird_Clips")
 
 
 # Data loading and preprocess_waving functions
