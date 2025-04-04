@@ -37,8 +37,8 @@ echo "Creating a virtual environment..."
 python -m venv venv
 source venv/bin/activate
 
-# Install required Python packages
-echo "Installing required Python packages..."
-pip install -q tensorflow[and-cuda] tensorflow-io[tensorflow] matplotlib kagglehub kaggle
+# Install required Python packages with CUDA support
+echo "Installing required Python packages with CUDA support..."
+pip install -q tensorflow[and-cuda]==2.19.0 tensorflow-io==0.37.1 matplotlib kagglehub kaggle
 
 echo "Setup complete. Activate the virtual environment using 'source venv/bin/activate'."
