@@ -4,9 +4,24 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import tensorflow as tf
 import tensorflow_io as tfio
+# List available models in the model directory
+model_dir = "model"
+available_models = [f for f in os.listdir(model_dir) if f.endswith('.keras')]
 
-# Load the saved model
-MODEL_PATH = "model/chainsaw_model.keras"
+if not available_models:
+    raise FileNotFoundError("No .keras models found in the model directory")
+
+# Print available models
+print("Available models:")
+for i, model_name in enumerate(available_models):
+    print(f"{i}: {model_name}")
+
+# Get user choice
+choice = int(input("Select model number: "))
+if choice < 0 or choice >= len(available_models):
+    raise ValueError("Invalid model selection")
+
+MODEL_PATH = os.path.join(model_dir, available_models[choice])
 
 if not os.path.exists(MODEL_PATH):
     raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
@@ -83,7 +98,7 @@ def predict_audio(file_path):
     spectrogram = tf.expand_dims(spectrogram, axis=0)  # Add batch dimension
     prediction = model.predict(spectrogram)
     # print(f"Prediction shape: {prediction.shape}")
-    return "Chainsaw" if prediction[0][0] > 0.9 else "Not Chainsaw"
+    return "Chainsaw" if prediction[0][0] > 0.99 else "Not Chainsaw"
 
 
 # Create a class to handle audio predictions and file organization
@@ -93,16 +108,18 @@ class ChainSawClassifier:
         self.not_chainsaw_files = []
 
     def classify_files(self, directory):
-        for filename in os.listdir(directory):
-            if filename.endswith(".wav") or filename.endswith(".mp3"):
-                file_path = os.path.join(directory, filename)
-                prediction = predict_audio(file_path)
-                if prediction == "Chainsaw":
-                    self.chainsaw_files.append(filename)
+        for root, dirs, files in os.walk(directory):
+            for filename in files:
+                if filename.endswith(".wav") or filename.endswith(".mp3"):
+                    file_path = os.path.join(root, filename)
+                    relative_path = os.path.relpath(file_path, directory)
+                    prediction = predict_audio(file_path)
+                    if prediction == "Chainsaw":
+                        self.chainsaw_files.append(relative_path)
+                    else:
+                        self.not_chainsaw_files.append(relative_path)
                 else:
-                    self.not_chainsaw_files.append(filename)
-            else:
-                print(f"Skipping unsupported file format: {filename}")
+                    print(f"Skipping unsupported file format: {filename}")
 
     def print_results(self):
         print("\nChainsaw Files:")

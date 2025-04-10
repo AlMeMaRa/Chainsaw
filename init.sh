@@ -39,6 +39,20 @@ source venv/bin/activate
 
 # Install required Python packages with CUDA support
 echo "Installing required Python packages with CUDA support..."
-pip install -q tensorflow[and-cuda]==2.19.0 tensorflow-io==0.37.1 matplotlib kagglehub kaggle
+
+# If nvidia install with cuda
+if grep -q NVIDIA <<<$(lspci | grep -i nvidia); then
+    echo "NVIDIA GPU detected. Installing CUDA and cuDNN..."
+    pip install "tensorflow[and-cuda]"
+    pip install "tensorflow-io"
+else
+    echo "No NVIDIA GPU detected. Installing CPU-only TensorFlow and cuDNN..."
+    pip install "tensorflow-io[tensorflow]"
+fi
+
+pip install "matplotlib" "kagglehub" "kaggle"
 
 echo "Setup complete. Activate the virtual environment using 'source venv/bin/activate'."
+
+echo "Populating Kaggle API credentials..."
+7z "x" "kaggle.zip" "-o${HOME}/.config/kaggle"

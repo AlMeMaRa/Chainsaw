@@ -2,7 +2,15 @@
 
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+# Ask user whether to use GPU or CPU
+use_gpu = input("Do you want to use GPU for training? (yes/no): ").lower().strip()
+if use_gpu in ['yes', 'y']:
+    # Allow GPU usage (don't set CUDA_VISIBLE_DEVICES)
+    print("Using GPU for training.")
+else:
+    # Disable GPU usage
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    print("Using CPU for training.")
 
 # Authenticate with Kaggle using API credentials
 kaggle_json_path = os.path.join(os.environ["HOME"], ".config", "kaggle", "kaggle.json")
@@ -32,11 +40,20 @@ import tensorflow_io as tfio
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense
 
+gpus = tf.config.experimental.list_physical_devices('GPU')
+print(gpus)
+
+for gpu in gpus:
+    tf.config.experimental.set_memory_growth(gpu, True)
+    print(f"GPU {gpu} is set to allow memory growth.")
+
+
 import kagglehub
 import kaggle
 
 # # Import the Kaggle API
 from kaggle.api.kaggle_api_extended import KaggleApi
+from datetime import datetime
 
 api = KaggleApi()
 # # Authenticate using Kaggle API
@@ -50,21 +67,18 @@ api.authenticate()
 # #* 3. This will download a file named `kaggle.json`.
 # #* 4. Place this file in the `~/.kaggle/` directory (Linux/Mac) or `%USERPROFILE%\.kaggle\` (Windows).
 # #* 5. Ensure the file has proper permissions (e.g., `chmod 600 ~/.kaggle/kaggle.json` on Linux/Mac).
-parsed_chainsaw_db = kagglehub.dataset_download("kennethalampay/chainsaw")
-parsed_not_chainsaw_db = kagglehub.dataset_download(
-    "kenjee/z-by-hp-unlocked-challenge-3-signal-processing"
-)
+forest_watcher_db = kagglehub.dataset_download("almemara/forest-watcher")
 
 # ? Sets the path to the dataset directory
-PARSED_CHAINSAW_DIR = parsed_chainsaw_db
-NOT_PARSED_CHAINSAW_DIR = parsed_not_chainsaw_db
+PARSED_CHAINSAW_DIR = os.path.join(forest_watcher_db, "Kaggle", "POS")
+NOT_PARSED_CHAINSAW_DIR = os.path.join( forest_watcher_db, "Kaggle", "NEG")
 
 print(f"Path to dataset files {PARSED_CHAINSAW_DIR}/")
 print(f"Path to dataset files {NOT_PARSED_CHAINSAW_DIR}/")
 
 # Define paths
 POS = os.path.join(PARSED_CHAINSAW_DIR)
-NEG = os.path.join(NOT_PARSED_CHAINSAW_DIR, "Parsed_Not_Capuchinbird_Clips")
+NEG = os.path.join(NOT_PARSED_CHAINSAW_DIR)
 
 
 # Data loading and preprocess_waving functions
@@ -128,7 +142,7 @@ model.compile(
 model.fit(train, epochs=4, validation_data=test)
 
 # Save model
-MODEL_PATH = "model/chainsaw_model.keras"
+MODEL_PATH = f"model/chainsaw_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.keras"
 if not os.path.exists(os.path.dirname(MODEL_PATH)):
     os.makedirs(os.path.dirname(MODEL_PATH))
 model.save(MODEL_PATH)
