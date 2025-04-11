@@ -49,7 +49,16 @@ def main():
         type=str,
         help="Path to the database. If not provided, the dataset will be downloaded using kagglehub.",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Batch size for training (default: 16).",
+    )
+
     args = parser.parse_args()
+
+    logger.info(f"Batch size set to: {args.batch_size}")
 
     # if KAGGLE_KEY is not set prompt forr the user to login
     if "KAGGLE_KEY" not in os.environ:
@@ -92,7 +101,7 @@ def main():
     data = data.map(preprocess_wav)
     data = data.cache()
     data = data.shuffle(buffer_size=1000)
-    data = data.batch(16).map(
+    data = data.batch(args.batch_size).map(
         lambda x, y: (tf.ensure_shape(x, (None, 1491, 257, 1)), y)
     )
     data = data.prefetch(8)
