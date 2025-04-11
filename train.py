@@ -1,87 +1,27 @@
 #!/usr/bin/env python
 
 import os
+import argparse
+import importlib
+import datetime
+from loguru import logger
 
-# Ask user whether to use GPU or CPU
-use_gpu = input("Do you want to use GPU for training? (yes/no): ").lower().strip()
-if use_gpu in ['yes', 'y']:
-    # Allow GPU usage (don't set CUDA_VISIBLE_DEVICES)
-    print("Using GPU for training.")
-else:
-    # Disable GPU usage
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    print("Using CPU for training.")
-
-# Authenticate with Kaggle using API credentials
-kaggle_json_path = os.path.join(os.environ["HOME"], ".config", "kaggle", "kaggle.json")
-
-# Get dirname of the kaggle.json file
-kaggle_json_dir = os.path.dirname(kaggle_json_path)
-# Check if the kaggle.json file exists
-if not os.path.exists(kaggle_json_path):
-    # If it doesn't exist, create the directory
-    os.makedirs(kaggle_json_dir, exist_ok=True)
-    # Create an empty kaggle.json file
-    with open(kaggle_json_path, "w") as f:
-        f.write("{}")
-    print(
-        f"kaggle.json file created at {kaggle_json_path}. Please add your Kaggle API credentials to this file."
-    )
-else:
-    print(f"Kaggle API key found at {kaggle_json_path}")
-
-# Set the KAGGLE_CONFIG_DIR environment variable to the directory containing kaggle.json
-print(f"Setting KAGGLE_CONFIG_DIR to {kaggle_json_dir}")
-os.environ["KAGGLE_CONFIG_DIR"] = kaggle_json_dir
+# looop the lines of ./ENV file and export all env variables
+with open("env") as f:
+    for line in f:
+        if line.strip() and not line.startswith("#"):
+            key, value = line.strip().split("=", 1)
+            os.environ[key] = value
 
 
-import tensorflow as tf
-import tensorflow_io as tfio
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense
 
-gpus = tf.config.experimental.list_physical_devices('GPU')
-print(gpus)
-
-for gpu in gpus:
-    tf.config.experimental.set_memory_growth(gpu, True)
-    print(f"GPU {gpu} is set to allow memory growth.")
+kagglehub = importlib.import_module("kagglehub")
+tf = importlib.import_module("tensorflow")
+tfio = importlib.import_module("tensorflow_io")
 
 
-import kagglehub
-import kaggle
-
-# # Import the Kaggle API
-from kaggle.api.kaggle_api_extended import KaggleApi
-from datetime import datetime
-
-api = KaggleApi()
-# # Authenticate using Kaggle API
-api.authenticate()
-
-# # Download the private dataset from Kaggle
-# # This dataset contains audio files for chainsaw and non-chainsaw sounds
-# # Note: To use Kaggle API, you need to set up your Kaggle API credentials.
-# #* 1. Go to your Kaggle account settings: https://www.kaggle.com/account
-# #* 2. Scroll down to the "API" section and click on "Create New API Token".
-# #* 3. This will download a file named `kaggle.json`.
-# #* 4. Place this file in the `~/.kaggle/` directory (Linux/Mac) or `%USERPROFILE%\.kaggle\` (Windows).
-# #* 5. Ensure the file has proper permissions (e.g., `chmod 600 ~/.kaggle/kaggle.json` on Linux/Mac).
-forest_watcher_db = kagglehub.dataset_download("almemara/forest-watcher")
-
-# ? Sets the path to the dataset directory
-PARSED_CHAINSAW_DIR = os.path.join(forest_watcher_db, "Kaggle", "POS")
-NOT_PARSED_CHAINSAW_DIR = os.path.join( forest_watcher_db, "Kaggle", "NEG")
-
-print(f"Path to dataset files {PARSED_CHAINSAW_DIR}/")
-print(f"Path to dataset files {NOT_PARSED_CHAINSAW_DIR}/")
-
-# Define paths
-POS = os.path.join(PARSED_CHAINSAW_DIR)
-NEG = os.path.join(NOT_PARSED_CHAINSAW_DIR)
-
-
-# Data loading and preprocess_waving functions
 def load_wav_16k_mono(filename):
     file_contents = tf.io.read_file(filename)
     wav, sample_rate = tf.audio.decode_wav(file_contents, desired_channels=1)
@@ -102,47 +42,88 @@ def preprocess_wav(file_path, label):
     return spectrogram, label
 
 
-# Create datasets
-pos = tf.data.Dataset.list_files(os.path.join(POS, "*.wav"))
-neg = tf.data.Dataset.list_files(os.path.join(NEG, "*.wav"))
-positives = tf.data.Dataset.zip(
-    (pos, tf.data.Dataset.from_tensor_slices(tf.ones(len(pos))))
-)
-negatives = tf.data.Dataset.zip(
-    (neg, tf.data.Dataset.from_tensor_slices(tf.zeros(len(neg))))
-)
-data = positives.concatenate(negatives)
-data = data.map(preprocess_wav)
-data = data.cache()
-data = data.shuffle(buffer_size=1000)
-data = data.batch(16).map(lambda x, y: (tf.ensure_shape(x, (None, 1491, 257, 1)), y))
-data = data.prefetch(8)
+def main():
+    parser = argparse.ArgumentParser(description="Train a chainsaw detection model.")
+    parser.add_argument(
+        "--database-path",
+        type=str,
+        help="Path to the database. If not provided, the dataset will be downloaded using kagglehub.",
+    )
+    args = parser.parse_args()
 
-# Split datasets
-train = data.take(36)
-test = data.skip(36).take(15)
+    # if KAGGLE_KEY is not set prompt forr the user to login
+    if "KAGGLE_KEY" not in os.environ:
+        logger.debug(
+            "KAGGLE_KEY is not set. Please set it or provide the database path."
+        )
+        try:
+            kagglehub.login()
+            logger.debug("Successfully logged in to kagglehub.")
+        except UnicodeEncodeError as e:
+            logger.debug(
+                "Error: Invalid characters in username or token. Please ensure they are valid."
+            )
+            raise e
 
-# Build model
-model = Sequential()
-model.add(Input(shape=(1491, 257, 1)))
-model.add(Conv2D(16, (3, 3), activation="relu"))
-# model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Conv2D(16, (3, 3), activation="relu"))
-model.add(Flatten())
-model.add(Dense(128, activation="relu"))
-model.add(Dense(1, activation="sigmoid"))
+    db_path = (
+        args.database_path
+        if args.database_path
+        else kagglehub.dataset_download("almemara/forest-watcher")
+    )
 
-model.compile(
-    "Adam",
-    loss="BinaryCrossentropy",
-    metrics=[tf.keras.metrics.Recall(), tf.keras.metrics.Precision()],
-)
+    PARSED_CHAINSAW_DIR = os.path.join(db_path, "POS")
+    NOT_PARSED_CHAINSAW_DIR = os.path.join(db_path, "NEG")
 
-# Train model
-model.fit(train, epochs=4, validation_data=test)
+    logger.debug(f"Path to dataset files {PARSED_CHAINSAW_DIR}/")
+    logger.debug(f"Path to dataset files {NOT_PARSED_CHAINSAW_DIR}/")
 
-# Save model
-MODEL_PATH = f"model/chainsaw_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.keras"
-if not os.path.exists(os.path.dirname(MODEL_PATH)):
-    os.makedirs(os.path.dirname(MODEL_PATH))
-model.save(MODEL_PATH)
+    POS = os.path.join(PARSED_CHAINSAW_DIR)
+    NEG = os.path.join(NOT_PARSED_CHAINSAW_DIR)
+
+    pos = tf.data.Dataset.list_files(os.path.join(POS, "*.wav"))
+    neg = tf.data.Dataset.list_files(os.path.join(NEG, "*.wav"))
+    positives = tf.data.Dataset.zip(
+        (pos, tf.data.Dataset.from_tensor_slices(tf.ones(len(pos))))
+    )
+    negatives = tf.data.Dataset.zip(
+        (neg, tf.data.Dataset.from_tensor_slices(tf.zeros(len(neg))))
+    )
+    data = positives.concatenate(negatives)
+    data = data.map(preprocess_wav)
+    data = data.cache()
+    data = data.shuffle(buffer_size=1000)
+    data = data.batch(16).map(
+        lambda x, y: (tf.ensure_shape(x, (None, 1491, 257, 1)), y)
+    )
+    data = data.prefetch(8)
+
+    train = data.take(36)
+    test = data.skip(36).take(15)
+
+    model = Sequential()
+
+    model.add(Input(shape=(1491, 257, 1)))
+    model.add(Conv2D(16, (3, 3), activation="relu"))
+    model.add(Conv2D(16, (3, 3), activation="relu"))
+    model.add(Flatten())
+    model.add(Dense(128, activation="relu"))
+    model.add(Dense(1, activation="sigmoid"))
+
+    model.compile(
+        "Adam",
+        loss="BinaryCrossentropy",
+        metrics=[tf.keras.metrics.Recall(), tf.keras.metrics.Precision()],
+    )
+
+    model.fit(train, epochs=4, validation_data=test)
+
+    MODEL_PATH = (
+        f"model/chainsaw_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.keras"
+    )
+    if not os.path.exists(os.path.dirname(MODEL_PATH)):
+        os.makedirs(os.path.dirname(MODEL_PATH))
+    model.save(MODEL_PATH)
+
+
+if __name__ == "__main__":
+    main()
