@@ -4,6 +4,7 @@ import os
 import argparse
 import importlib
 import datetime
+import json
 from loguru import logger
 
 # looop the lines of ./ENV file and export all env variables
@@ -46,11 +47,26 @@ def main():
     parser = argparse.ArgumentParser(description="Train a chainsaw detection model.")
     parser.add_argument(
         "--database-path",
+        "-d",
         type=str,
         help="Path to the database. If not provided, the dataset will be downloaded using kagglehub.",
     )
     parser.add_argument(
+        "--database-version",
+        "-dv",
+        type=int,
+        help="Version of the database to download. If not provided, the latest version will be used.",
+    )
+    parser.add_argument(
+        "--epoch",
+        "-e",
+        type=int,
+        default=4,
+        help="Number of epochs for training (default: 4).",
+    )
+    parser.add_argument(
         "--batch-size",
+        "-b",
         type=int,
         default=16,
         help="Batch size for training (default: 16).",
@@ -73,12 +89,12 @@ def main():
                 "Error: Invalid characters in username or token. Please ensure they are valid."
             )
             raise e
-
-    db_path = (
-        args.database_path
-        if args.database_path
-        else kagglehub.dataset_download("almemara/forest-watcher")
-    )
+    if args.database_path:
+        db_path = args.database_path
+    elif args.database_version is not None:
+        db_path = kagglehub.dataset_download(f"almemara/forest-watcher/version/{args.database_version}")
+    else:
+        db_path = kagglehub.dataset_download("almemara/forest-watcher")
 
     PARSED_CHAINSAW_DIR = os.path.join(db_path, "POS")
     NOT_PARSED_CHAINSAW_DIR = os.path.join(db_path, "NEG")
@@ -101,7 +117,12 @@ def main():
     data = data.map(preprocess_wav)
     data = data.cache()
     data = data.shuffle(buffer_size=1000)
-    data = data.batch(args.batch_size).map(
+
+    # Adjust batch size dynamically based on dataset size
+    dataset_size = len(list(data))
+    batch_size = min(args.batch_size, dataset_size)
+
+    data = data.batch(batch_size, drop_remainder=True).map(
         lambda x, y: (tf.ensure_shape(x, (None, 1491, 257, 1)), y)
     )
     data = data.prefetch(8)
@@ -109,14 +130,37 @@ def main():
     train = data.take(36)
     test = data.skip(36).take(15)
 
-    model = Sequential()
+    # Load include array from include.json
+    with open("include.json", "r") as include_file:
+        include = json.load(include_file)
 
-    model.add(Input(shape=(1491, 257, 1)))
-    model.add(Conv2D(16, (3, 3), activation="relu"))
-    model.add(Conv2D(16, (3, 3), activation="relu"))
-    model.add(Flatten())
-    model.add(Dense(128, activation="relu"))
-    model.add(Dense(1, activation="sigmoid"))
+    # Load layer details from layers.json
+    with open("layers.json", "r") as layer_file:
+        layer_details = json.load(layer_file)
+
+    # Filter layers based on the include array using the `name` key
+    if include:
+        layer_details = [
+            layer for layer in layer_details if layer.get("name") in include
+        ]
+
+    # Log the layers being loaded
+    logger.info(f"Layers loaded: {[layer.get('name') for layer in layer_details]}")
+
+    # Dynamically add layers to the model
+    model = Sequential()
+    for layer in layer_details:
+        layer_type = layer.pop("layer")  # Extract the layer type
+        layer.pop("description", None)  # Remove the description field if it exists
+        layer.pop("name", None)  # Remove the name field if it exists
+        logger.info(f"Adding layer: {layer_type} with parameters: {layer}")
+        if layer_type == "Input":
+            model.add(Input(**layer))  # Dynamically pass arguments
+        else:
+            layer_class = getattr(
+                tf.keras.layers, layer_type
+            )  # Get the layer class dynamically
+            model.add(layer_class(**layer))  # Dynamically pass arguments
 
     model.compile(
         "Adam",
@@ -124,14 +168,34 @@ def main():
         metrics=[tf.keras.metrics.Recall(), tf.keras.metrics.Precision()],
     )
 
-    model.fit(train, epochs=4, validation_data=test)
+    # Train the model and capture the history
+    history = model.fit(train, epochs=args.epoch, validation_data=test)
 
-    MODEL_PATH = (
-        f"model/chainsaw_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.keras"
-    )
+    # Evaluate the model on the test dataset
+    evaluation = model.evaluate(test, return_dict=True)
+
+    date_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    MODEL_PATH = f"model/chainsaw_model_{date_time}.keras"
+    MODEL_INFO_PATH = f"model/chainsaw_model_{date_time}.json"
+
     if not os.path.exists(os.path.dirname(MODEL_PATH)):
         os.makedirs(os.path.dirname(MODEL_PATH))
     model.save(MODEL_PATH)
+
+    # Save model details to a JSON file with training history and evaluation
+    model_details = {
+        "file_name": MODEL_PATH,
+        "dataset_path": db_path,
+        "dataset_name": os.path.basename(db_path) if db_path else "Default Dataset",
+        "model_architecture": layer_details,
+        "include": include,
+        "training_history": history.history,
+        "evaluation": evaluation,
+    }
+
+    with open(MODEL_INFO_PATH, "w") as f:
+        json.dump(model_details, f, indent=4)
 
 
 if __name__ == "__main__":

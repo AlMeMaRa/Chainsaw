@@ -1,12 +1,25 @@
-import os
+#!/usr/bin/env python
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+import os
+import argparse
+import importlib
+import datetime
+from loguru import logger
+
+# looop the lines of ./ENV file and export all env variables
+with open("env") as f:
+    for line in f:
+        if line.strip() and not line.startswith("#"):
+            key, value = line.strip().split("=", 1)
+            os.environ[key] = value
+
 
 import tensorflow as tf
 import tensorflow_io as tfio
+
 # List available models in the model directory
 model_dir = "model"
-available_models = [f for f in os.listdir(model_dir) if f.endswith('.keras')]
+available_models = [f for f in os.listdir(model_dir) if f.endswith(".keras")]
 
 if not available_models:
     raise FileNotFoundError("No .keras models found in the model directory")
@@ -34,6 +47,7 @@ print(f"Model input shape: {model.input_shape}")
 if model is None:
     raise RuntimeError("Failed to load the model. Please check the model path.")
 
+
 # Data loading and preprocessing_wav functions
 def load_wav_16k_mono(filename):
     file_contents = tf.io.read_file(filename)
@@ -55,7 +69,6 @@ def preprocess_wav(file_path, label):
     return spectrogram, label
 
 
-
 # Function to load and preprocess audio
 def load_mp3_16k_mono(filename):
     if not os.path.exists(filename):
@@ -67,6 +80,7 @@ def load_mp3_16k_mono(filename):
     wav = tfio.audio.resample(tensor, rate_in=sample_rate, rate_out=16000)
     return wav
 
+
 def preprocess_mp3(sample):
     sample_size = tf.shape(sample)[0]
     padding_size = tf.maximum(0, 48000 - sample_size)  # Ensure consistent input size
@@ -76,12 +90,14 @@ def preprocess_mp3(sample):
     spectrogram = tf.signal.stft(wav, frame_length=320, frame_step=32)
     spectrogram = tf.abs(spectrogram)
     spectrogram = tf.expand_dims(spectrogram, axis=-1)  # Add channel dimension
-    spectrogram = tf.image.resize(spectrogram, [1491, 257])  # Resize to match model input
+    spectrogram = tf.image.resize(
+        spectrogram, [1491, 257]
+    )  # Resize to match model input
     return spectrogram
+
 
 # Function to make predictions
 def predict_audio(file_path):
-
     # Identify if wav or mp3
     if file_path.endswith(".mp3"):
         wav = load_mp3_16k_mono(file_path)
@@ -92,8 +108,7 @@ def predict_audio(file_path):
         print(
             "Unsupported audio format. Please provide a .wav or .mp3 file. Defaulting to mp3."
         )
-    
-    
+
     spectrogram = preprocess_mp3(wav)
     spectrogram = tf.expand_dims(spectrogram, axis=0)  # Add batch dimension
     prediction = model.predict(spectrogram)
@@ -125,10 +140,11 @@ class ChainSawClassifier:
         print("\nChainsaw Files:")
         for file in self.chainsaw_files:
             print(f"- {file}")
-        
+
         print("\nNot Chainsaw Files:")
         for file in self.not_chainsaw_files:
             print(f"- {file}")
+
 
 # Create instance and process files
 classifier = ChainSawClassifier()
