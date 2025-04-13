@@ -1,0 +1,43 @@
+[
+  {
+    "layer": "Input",
+    "name": "Input_v1",
+    "description": "Input layer defining the shape of input data.",
+    "shape": [1491, 257, 1]
+  },
+  {
+    "layer": "Conv2D",
+    "name": "Conv2D_v1",
+    "description": "2D convolution layer for feature extraction.",
+    "filters": 16,
+    "kernel_size": [3, 3],
+    "activation": "relu"
+  },
+  {
+    "layer": "Conv2D",
+    "name": "Conv2D_v2",
+    "description": "Another 2D convolution layer for deeper feature extraction.",
+    "filters": 16,
+    "kernel_size": [3, 3],
+    "activation": "relu"
+  },
+  {
+    "layer": "Flatten",
+    "name": "Flatten_v1",
+    "description": "Flattens the input to prepare for dense layers."
+  },
+  {
+    "layer": "Dense",
+    "name": "Dense_v1",
+    "description": "Fully connected layer with 128 units.",
+    "units": 128,
+    "activation": "relu"
+  },
+  {
+    "layer": "Dense",
+    "name": "Dense_v2",
+    "description": "Output layer with a single unit for binary classification.",
+    "units": 1,
+    "activation": "sigmoid"
+  }
+]
